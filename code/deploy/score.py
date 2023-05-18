@@ -1,9 +1,7 @@
 import os
 import joblib
 import numpy as np
-import argparse
 
-from sklearn.svm import SVC
 from azureml.core import Model
 from azureml.monitoring import ModelDataCollector
 from inference_schema.schema_decorators import input_schema, output_schema
@@ -11,34 +9,31 @@ from inference_schema.parameter_types.numpy_parameter_type import NumpyParameter
 from inference_schema.parameter_types.standard_py_parameter_type import StandardPythonParameterType
 
 
-# The init() method is called once, when the web service starts up.
-# Typically you would deserialize the model file, as shown here using joblib,
-# and store it in a global variable so your run() method can access it later.
 def init():
-    global model
-    global inputs_dc, prediction_dc
-    # The AZUREML_MODEL_DIR environment variable indicates
-    # a directory containing the model file you registered.
-    model_file_name = "model.pkl"
-    model_path = os.path.join(os.environ.get("AZUREML_MODEL_DIR"), model_file_name)
-    model = joblib.load(model_path)
-    inputs_dc = ModelDataCollector("sample-model", designation="inputs", feature_names=["feat1", "feat2", "feat3", "feat4"])
-    prediction_dc = ModelDataCollector("sample-model", designation="predictions", feature_names=["prediction"])
+    global xgbc_model, rfc_model
+    global inputs_dc, xgbc_prediction_dc, rfc_prediction_dc
+
+    model_path = os.environ.get("AZUREML_MODEL_DIR")
+    xgbc_model_path = os.path.join(model_path, "xbgc_model_file.pkl")
+    rfc_model_path = os.path.join(model_path, "rfc_model_file.pkl")
+
+    xgbc_model = joblib.load(xgbc_model_path)
+    rfc_model = joblib.load(rfc_model_path)
+
+    input_features = ["feat{}".format(i) for i in range(1, 33)]
+    inputs_dc = ModelDataCollector("sample-model", designation="inputs", feature_names=input_features)
+    xgbc_prediction_dc = ModelDataCollector("sample-model", designation="xgbc_predictions", feature_names=["xgbc_prediction"])
+    rfc_prediction_dc = ModelDataCollector("sample-model", designation="rfc_predictions", feature_names=["rfc_prediction"])
 
 
-# The run() method is called each time a request is made to the scoring API.
-# Shown here are the optional input_schema and output_schema decorators
-# from the inference-schema pip package. Using these decorators on your
-# run() method parses and validates the incoming payload against
-# the example input you provide here. This will also generate a Swagger
-# API document for your web service.
-@input_schema('data', NumpyParameterType(np.array([[0.1, 1.2, 2.3, 3.4]])))
-@output_schema(StandardPythonParameterType({'predict': [['Iris-virginica']]}))
+@input_schema('data', NumpyParameterType(np.array([[1,5,0,0,0,2,0,0,0,0,1,0,4,11,6,25,28,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,4,2,1]])))
+@output_schema(StandardPythonParameterType({'xgbc_predict': [['Autres']], 'rfc_predict': [['Méfait volontaire']]}))
 def run(data):
-    # Use the model object loaded by init().
-    result = model.predict(data)
-    inputs_dc.collect(data) #this call is saving our input data into Azure Blob
-    prediction_dc.collect(result) #this call is saving our input data into Azure Blob
+    xgbc_result = xgbc_model.predict(data)
+    rfc_result = rfc_model.predict(data)
 
-    # You can return any JSON-serializable object.
-    return { "predict": result.tolist() }
+    inputs_dc.collect(data)
+    xgbc_prediction_dc.collect(xgbc_result)
+    rfc_prediction_dc.collect(rfc_result)
+
+    return { "xgbc_predict": xgbc_result.tolist(), "rfc_predict": rfc_result.tolist() }
